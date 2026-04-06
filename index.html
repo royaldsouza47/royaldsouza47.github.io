@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>RBD // SYSTEM ACCESS</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+    :root {
+      --bg:      #000d0d;
+      --arc:     #00ffe0;
+      --arc2:    #00c8ff;
+      --red:     #ff2020;
+      --green:   #00ff88;
+      --gold:    #ffc93c;
+      --dim:     #0a4a3a;
+      --text:    #b0ffe8;
+      --textdim: #2a7a6a;
+      --panel:   rgba(0,255,224,0.04);
+      --border:  rgba(0,255,224,0.18);
+      --borderH: rgba(0,255,224,0.5);
+    }
+    html { scroll-behavior: smooth; }
+    body { font-family:'Share Tech Mono', monospace; background:var(--bg); color:var(--text); overflow-x:hidden; cursor:none; }
+
+    /* ── CURSOR ── */
+    #cur  { position:fixed; width:10px; height:10px; background:var(--arc); border-radius:50%; pointer-events:none; z-index:99999; transform:translate(-50%,-50%); box-shadow:0 0 10px var(--arc),0 0 20px var(--arc2); transition:width .15s,height .15s; }
+    #curR { position:fixed; width:32px; height:32px; border:1px solid rgba(0,255,224,.4); border-radius:50%; pointer-events:none; z-index:99998; transform:translate(-50%,-50%); transition:width .3s,height .3s; }
+
+    /* ── SCANLINES ── */
+    body::before { content:''; position:fixed; inset:0; z-index:9000; pointer-events:none; background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.04) 2px,rgba(0,0,0,.04) 4px); }
+    /* ── GRID ── */
+    body::after  { content:''; position:fixed; inset:0; z-index:0; pointer-events:none; background-image:linear-gradient(rgba(0,255,224,.02) 1px,transparent 1px),linear-gradient(90deg,rgba(0,255,224,.02) 1px,transparent 1px); background-size:50px 50px; }
+
+    /* ══════════════════════════════
+       BOOT SCREEN
+    ══════════════════════════════ */
+    #boot {
+      position:fixed; inset:0; z-index:8000;
+      background:#000d0d;
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      padding:2rem;
+    }
+    .boot-logo {
+      font-family:'Orbitron',monospace;
+      font-size:clamp(2rem,6vw,4rem);
+      font-weight:900;
+      color:var(--arc);
+      text-shadow:0 0 40px var(--arc),0 0 80px var(--arc2);
+      letter-spacing:8px;
+      margin-bottom:0.5rem;
+      opacity:0; animation:fadeIn .5s .3s forwards;
+    }
+    .boot-sub {
+      font-size:.7rem; letter-spacing:5px; color:var(--textdim);
+      margin-bottom:3rem;
+      opacity:0; animation:fadeIn .5s .6s forwards;
+    }
+    .boot-terminal {
+      width:100%; max-width:540px;
+      background:rgba(0,10,8,.9);
+      border:1px solid var(--border);
+      padding:1.5rem 2rem;
+      font-size:.82rem;
+      line-height:2;
+      position:relative;
+    }
+    .boot-terminal::before { content:''; position:absolute; top:-1px; left:20px; width:60px; height:2px; background:var(--arc); }
+    .boot-terminal::after  { content:''; position:absolute; bottom:-1px; right:20px; width:60px; height:2px; background:var(--arc); }
+
+    .t-line { color:var(--textdim); display:block; min-height:1.4em; }
+    .t-line.active { color:var(--text); }
+    .t-line.ok  { color:var(--green); }
+    .t-line.err { color:var(--red); }
+    .t-line.warn{ color:var(--gold); }
+
+    /* loading bar */
+    .boot-bar-wrap { margin:1rem 0; height:4px; background:rgba(0,255,224,.08); border:1px solid var(--border); }
+    .boot-bar { height:100%; width:0%; background:linear-gradient(90deg,var(--arc2),var(--arc)); box-shadow:0 0 10px var(--arc); transition:width .05s linear; }
+
+    /* login box */
+    #loginBox { display:none; margin-top:1rem; }
+    .login-row { display:flex; align-items:center; gap:1rem; margin:.4rem 0; }
+    .login-label { color:var(--textdim); min-width:100px; font-size:.78rem; }
+    .login-val   { color:var(--arc); font-size:.82rem; }
+
+    /* ACCESS GRANTED */
+    #accessGranted {
+      display:none; text-align:center; margin-top:1.5rem;
+      font-family:'Orbitron',monospace;
+      font-size:clamp(1.2rem,4vw,2rem);
+      font-weight:900;
+      color:var(--green);
+      text-shadow:0 0 30px var(--green),0 0 60px var(--green);
+      letter-spacing:6px;
+      animation:glowPulse 1s ease-in-out infinite;
+    }
+    @keyframes glowPulse { 0%,100%{text-shadow:0 0 20px var(--green),0 0 40px var(--green);} 50%{text-shadow:0 0 40px var(--green),0 0 80px var(--green),0 0 120px var(--green);} }
+    @keyframes fadeIn { from{opacity:0;transform:translateY(10px);} to{opacity:1;transform:translateY(0);} }
+
+    /* ══════════════════════════════
+       MAIN PORTFOLIO
+    ══════════════════════════════ */
+    #app { opacity:0; transition:opacity .8s; }
+    #app.visible { opacity:1; }
+
+    /* ── SIDE TASKBAR ── */
+    #taskbar {
+      position:fixed; left:0; top:0; bottom:0; z-index:700;
+      width:56px;
+      background:rgba(0,13,13,.95);
+      border-right:1px solid var(--border);
+      display:flex; flex-direction:column; align-items:center;
+      padding:80px 0 2rem;
+      gap:0;
+      transition:width .3s cubic-bezier(.4,0,.2,1);
+      overflow:hidden;
+    }
+    #taskbar:hover { width:180px; }
+    .tb-item {
+      display:flex; align-items:center; gap:14px;
+      width:100%; padding:14px 18px;
+      color:var(--textdim); text-decoration:none;
+      font-size:.65rem; letter-spacing:2px; text-transform:uppercase;
+      transition:color .2s, background .2s;
+      white-space:nowrap; overflow:hidden;
+      border-left:2px solid transparent;
+    }
+    .tb-item:hover { color:var(--arc); background:rgba(0,255,224,.06); border-left-color:var(--arc); }
+    .tb-icon { font-size:1rem; flex-shrink:0; width:20px; text-align:center; }
+    .tb-label { font-size:.65rem; letter-spacing:2px; }
+    .tb-divider { width:30px; height:1px; background:var(--border); margin:8px 0; }
+
+    /* ── TOP NAV ── */
+    nav {
+      position:fixed; top:0; left:56px; right:0; z-index:600;
+      height:56px; padding:0 2rem;
+      background:rgba(0,13,13,.92); backdrop-filter:blur(12px);
+      border-bottom:1px solid var(--border);
+      display:flex; align-items:center; justify-content:space-between;
+    }
+    .nav-id { font-family:'Orbitron',monospace; font-size:.85rem; color:var(--arc); letter-spacing:3px; text-shadow:0 0 15px var(--arc); }
+    .nav-status { display:flex; align-items:center; gap:8px; font-size:.65rem; color:var(--green); letter-spacing:2px; }
+    .ndot { width:6px; height:6px; border-radius:50%; background:var(--green); box-shadow:0 0 8px var(--green); animation:blink 1.5s infinite; }
+    @keyframes blink { 0%,100%{opacity:1;} 50%{opacity:.2;} }
+
+    /* ── PAGE WRAPPER ── */
+    #pages { margin-left:56px; padding-top:56px; }
+
+    /* ── HERO ── */
+    #hero {
+      min-height:100vh; display:flex; align-items:center;
+      padding:60px 5%; position:relative; overflow:hidden;
+    }
+    /* spinning reactor */
+    .reactor { position:absolute; right:6%; top:50%; transform:translateY(-50%); width:300px; height:300px; }
+    .ring { position:absolute; border-radius:50%; border:1px solid var(--arc); top:50%; left:50%; transform:translate(-50%,-50%); animation:spin linear infinite; }
+    .ring:nth-child(1){width:300px;height:300px;opacity:.07;animation-duration:22s;}
+    .ring:nth-child(2){width:240px;height:240px;opacity:.1;animation-duration:16s;animation-direction:reverse;border-style:dashed;}
+    .ring:nth-child(3){width:185px;height:185px;opacity:.15;animation-duration:11s;}
+    .ring:nth-child(4){width:130px;height:130px;opacity:.25;animation-duration:7s;animation-direction:reverse;}
+    .ring:nth-child(5){width:80px;height:80px;opacity:.4;animation-duration:4s;}
+    .rcore { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:44px; height:44px; border-radius:50%; background:radial-gradient(circle,#fff 0%,var(--arc) 40%,var(--arc2) 100%); box-shadow:0 0 20px var(--arc),0 0 60px var(--arc),0 0 100px var(--arc2); animation:corePulse 2s ease-in-out infinite; }
+    @keyframes spin { from{transform:translate(-50%,-50%) rotate(0deg);} to{transform:translate(-50%,-50%) rotate(360deg);} }
+    @keyframes corePulse { 0%,100%{box-shadow:0 0 20px var(--arc),0 0 50px var(--arc),0 0 90px var(--arc2);} 50%{box-shadow:0 0 40px var(--arc),0 0 80px var(--arc),0 0 130px var(--arc2);} }
+
+    .hero-inner { max-width:600px; position:relative; z-index:2; }
+    .h-tag { font-size:.65rem; letter-spacing:4px; color:var(--arc); margin-bottom:.75rem; display:flex; align-items:center; gap:10px; }
+    .h-tag::before { content:'>>'; color:var(--green); }
+    .h-name { font-family:'Orbitron',monospace; font-size:clamp(2rem,5vw,3.6rem); font-weight:900; color:#fff; line-height:1.1; margin-bottom:.5rem; text-shadow:0 0 40px rgba(0,255,224,.25); }
+    .h-name .arc { color:var(--arc); text-shadow:0 0 25px var(--arc); }
+    .h-role { font-size:.78rem; letter-spacing:5px; text-transform:uppercase; color:var(--textdim); margin-bottom:1.5rem; }
+    .h-bio { font-family:'Rajdhani',sans-serif; font-size:1rem; color:rgba(176,255,232,.55); max-width:460px; line-height:1.9; margin-bottom:2.5rem; font-weight:300; }
+    .h-btns { display:flex; gap:1rem; flex-wrap:wrap; }
+
+    .btn-arc {
+      display:inline-block; position:relative; overflow:hidden;
+      border:1px solid var(--arc); color:var(--arc);
+      padding:11px 28px; text-decoration:none;
+      font-family:'Orbitron',monospace; font-size:.65rem; font-weight:700;
+      letter-spacing:3px; text-transform:uppercase; transition:all .3s;
+    }
+    .btn-arc::before { content:''; position:absolute; inset:0; background:var(--arc); transform:translateX(-100%); transition:transform .3s; z-index:0; }
+    .btn-arc span { position:relative; z-index:1; }
+    .btn-arc:hover { color:var(--bg); box-shadow:0 0 25px var(--arc); }
+    .btn-arc:hover::before { transform:translateX(0); }
+    .btn-g {
+      display:inline-block; border:1px solid var(--border); color:var(--textdim);
+      padding:11px 28px; text-decoration:none;
+      font-family:'Orbitron',monospace; font-size:.65rem; letter-spacing:3px; text-transform:uppercase;
+      transition:all .3s;
+    }
+    .btn-g:hover { border-color:var(--arc); color:var(--arc); box-shadow:0 0 15px rgba(0,255,224,.12); }
+
+    /* ── SECTIONS ── */
+    .sec { padding:80px 4%; position:relative; z-index:1; }
+    .sec:nth-child(even) { background:rgba(0,255,224,.02); }
+    .sec-tag { font-size:.62rem; letter-spacing:5px; text-transform:uppercase; color:var(--arc); margin-bottom:.4rem; display:flex; align-items:center; gap:10px; }
+    .sec-tag::before { content:'//'; color:var(--red); }
+    .sec-tag::after  { content:''; flex:1; max-width:70px; height:1px; background:var(--borderH); }
+    .sec-title { font-family:'Orbitron',monospace; font-size:clamp(1.4rem,2.5vw,2.1rem); font-weight:700; color:#fff; text-shadow:0 0 25px rgba(0,255,224,.18); margin-bottom:2.5rem; }
+
+    /* panel */
+    .panel { background:var(--panel); border:1px solid var(--border); position:relative; transition:border-color .3s,box-shadow .3s; }
+    .panel:hover { border-color:var(--borderH); box-shadow:0 0 25px rgba(0,255,224,.07),inset 0 0 25px rgba(0,255,224,.04); }
+    .panel::before { content:''; position:absolute; top:-1px; left:16px; width:36px; height:2px; background:var(--arc); }
+    .panel::after  { content:''; position:absolute; bottom:-1px; right:16px; width:36px; height:2px; background:var(--arc); }
+
+    /* ── ABOUT ── */
+    .about-grid { display:grid; grid-template-columns:1fr 1fr; gap:3.5rem; max-width:1100px; align-items:start; }
+    .about-text p { font-family:'Rajdhani',sans-serif; color:rgba(176,255,232,.6); margin-bottom:1rem; font-size:1rem; line-height:1.9; }
+    .stats { display:grid; grid-template-columns:1fr 1fr; gap:.8rem; margin-top:1.5rem; }
+    .stat { background:var(--panel); border:1px solid var(--border); padding:1rem; text-align:center; position:relative; overflow:hidden; }
+    .stat::before { content:''; position:absolute; top:0; left:0; right:0; height:1px; background:linear-gradient(90deg,transparent,var(--arc),transparent); }
+    .stat-n { font-family:'Orbitron',monospace; font-size:1.7rem; font-weight:900; color:var(--arc); text-shadow:0 0 18px var(--arc); display:block; }
+    .stat-l { font-size:.6rem; letter-spacing:2px; text-transform:uppercase; color:var(--textdim); margin-top:.2rem; }
+    .info-panel { padding:1.5rem; }
+    .dr { display:flex; align-items:center; gap:.75rem; padding:.65rem 0; border-bottom:1px solid var(--border); }
+    .dr:last-child { border-bottom:none; }
+    .di { color:var(--arc); width:18px; text-align:center; font-size:.75rem; }
+    .dl { font-size:.6rem; letter-spacing:2px; text-transform:uppercase; color:var(--textdim); min-width:75px; }
+    .dv { color:var(--text); font-size:.82rem; }
+    .dv a { color:var(--arc); text-decoration:none; transition:text-shadow .2s; }
+    .dv a:hover { text-shadow:0 0 10px var(--arc); }
+
+    /* ── SKILLS ── */
+    .skills-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:1.2rem; max-width:1100px; }
+    .sk-card { padding:1.5rem; }
+    .sk-cat { font-size:.6rem; letter-spacing:3px; text-transform:uppercase; color:var(--arc); margin-bottom:1rem; display:flex; align-items:center; gap:6px; }
+    .sk-cat::before { content:'>'; color:var(--red); }
+    .sk-list { display:flex; flex-wrap:wrap; gap:.4rem; }
+    .sk-tag { background:rgba(0,255,224,.05); border:1px solid var(--border); color:var(--text); padding:5px 12px; font-size:.75rem; letter-spacing:1px; transition:all .2s; }
+    .sk-tag:hover { border-color:var(--arc); color:var(--arc); background:rgba(0,255,224,.1); box-shadow:0 0 12px rgba(0,255,224,.15); }
+
+    /* ── EXPERIENCE ── */
+    .exp-list { display:flex; flex-direction:column; gap:1.5rem; max-width:900px; }
+    .exp-card { padding:1.75rem; }
+    .exp-top { display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:.5rem; margin-bottom:1rem; }
+    .exp-role { font-family:'Orbitron',monospace; font-size:.9rem; font-weight:700; color:#fff; }
+    .exp-co { font-size:.75rem; color:var(--arc); letter-spacing:2px; margin-top:.2rem; }
+    .exp-date { font-size:.65rem; letter-spacing:2px; color:var(--textdim); border:1px solid var(--border); padding:4px 10px; white-space:nowrap; }
+    .exp-desc { font-family:'Rajdhani',sans-serif; color:rgba(176,255,232,.55); font-size:.95rem; line-height:1.8; }
+    .exp-tags { display:flex; flex-wrap:wrap; gap:.4rem; margin-top:1rem; }
+    .exp-tag { font-size:.6rem; letter-spacing:2px; text-transform:uppercase; color:var(--textdim); border:1px solid var(--border); padding:3px 9px; }
+
+    /* ── PROJECTS ── */
+    .cs-panel { max-width:680px; padding:3.5rem; text-align:center; margin:0 auto; }
+    .cs-icon { font-family:'Orbitron',monospace; font-size:2.5rem; color:var(--arc); opacity:.25; margin-bottom:1.5rem; display:block; }
+    .cs-bar { height:2px; background:linear-gradient(90deg,transparent,var(--arc),transparent); margin:1.2rem 0; animation:scan 2s linear infinite; }
+    @keyframes scan { 0%,100%{opacity:.25;} 50%{opacity:1;} }
+    .cs-title { font-family:'Orbitron',monospace; font-size:.85rem; color:var(--arc); letter-spacing:4px; text-transform:uppercase; margin-bottom:.75rem; }
+    .cs-desc { font-family:'Rajdhani',sans-serif; color:var(--textdim); font-size:.95rem; line-height:1.8; margin-bottom:1.5rem; }
+    .cs-tags { display:flex; flex-wrap:wrap; gap:.4rem; justify-content:center; }
+    .cs-tag { font-size:.6rem; letter-spacing:2px; text-transform:uppercase; color:var(--textdim); border:1px solid var(--border); padding:3px 10px; }
+
+    /* ── CONTACT ── */
+    .contact-grid { display:grid; grid-template-columns:1fr 1fr; gap:3.5rem; max-width:1100px; align-items:start; }
+    .c-desc { font-family:'Rajdhani',sans-serif; color:rgba(176,255,232,.45); font-size:1rem; line-height:1.9; margin-bottom:1.5rem; }
+    .c-links { display:flex; flex-direction:column; gap:.8rem; }
+    .c-item { display:flex; align-items:center; gap:1rem; padding:.9rem 1.1rem; background:var(--panel); border:1px solid var(--border); text-decoration:none; transition:all .3s; position:relative; overflow:hidden; }
+    .c-item::before { content:''; position:absolute; left:0; top:0; bottom:0; width:2px; background:var(--arc); transform:scaleY(0); transition:transform .3s; }
+    .c-item:hover { border-color:var(--borderH); background:rgba(0,255,224,.07); }
+    .c-item:hover::before { transform:scaleY(1); }
+    .c-ico { font-size:.65rem; color:var(--arc); width:32px; height:32px; border:1px solid var(--border); display:flex; align-items:center; justify-content:center; flex-shrink:0; letter-spacing:0; }
+    .c-lbl { font-size:.58rem; letter-spacing:2px; text-transform:uppercase; color:var(--textdim); margin-bottom:2px; }
+    .c-val { color:var(--text); font-size:.82rem; }
+    .c-form { display:flex; flex-direction:column; gap:.9rem; }
+    .fg { display:flex; flex-direction:column; gap:.3rem; }
+    .fl { font-size:.58rem; letter-spacing:3px; text-transform:uppercase; color:var(--textdim); }
+    .fi,.ft { background:rgba(0,255,224,.03); border:1px solid var(--border); padding:10px 12px; color:var(--text); font-family:'Share Tech Mono',monospace; font-size:.82rem; outline:none; transition:border-color .2s,box-shadow .2s; }
+    .fi:focus,.ft:focus { border-color:var(--arc); box-shadow:0 0 15px rgba(0,255,224,.12); }
+    .ft { resize:vertical; min-height:100px; }
+
+    /* ── FOOTER ── */
+    footer { margin-left:56px; border-top:1px solid var(--border); text-align:center; padding:1.2rem; font-size:.6rem; letter-spacing:3px; color:var(--textdim); position:relative; z-index:1; }
+    footer span { color:var(--arc); }
+
+    /* ── ANIMATIONS ── */
+    @keyframes fadeUp { from{opacity:0;transform:translateY(18px);} to{opacity:1;transform:translateY(0);} }
+    .fu { opacity:0; animation:fadeUp .6s forwards; }
+    .fu1{animation-delay:.1s;} .fu2{animation-delay:.25s;} .fu3{animation-delay:.4s;} .fu4{animation-delay:.55s;} .fu5{animation-delay:.7s;} .fu6{animation-delay:.85s;}
+
+    /* ── RESPONSIVE ── */
+    @media(max-width:768px){
+      #taskbar{display:none;}
+      nav{left:0;}
+      #pages{margin-left:0;}
+      footer{margin-left:0;}
+      .about-grid,.contact-grid{grid-template-columns:1fr;gap:2rem;}
+      .reactor{display:none;}
+      body{cursor:auto;}
+      #cur,#curR{display:none;}
+    }
+  </style>
+</head>
+<body>
+
+  <div id="cur"></div>
+  <div id="curR"></div>
+
+  <!-- ═══════════════════════════
+       BOOT SCREEN
+  ═══════════════════════════ -->
+  <div id="boot">
+    <div class="boot-logo">R·B·D</div>
+    <div class="boot-sub">STARK-CLASS ENGINEER INTERFACE // v2.6.1</div>
+
+    <div class="boot-terminal">
+      <span class="t-line" id="l1"></span>
+      <span class="t-line" id="l2"></span>
+      <div class="boot-bar-wrap" id="barWrap" style="display:none">
+        <div class="boot-bar" id="bar"></div>
+      </div>
+      <span class="t-line" id="l3"></span>
+      <span class="t-line" id="l4"></span>
+      <span class="t-line" id="l5"></span>
+
+      <div id="loginBox">
+        <div class="login-row"><span class="login-label">USER    :</span><span class="login-val" id="userVal"></span></div>
+        <div class="login-row"><span class="login-label">PASSWORD:</span><span class="login-val" id="passVal"></span></div>
+      </div>
+
+      <span class="t-line" id="l6"></span>
+      <span class="t-line" id="l7"></span>
+      <span class="t-line" id="l8"></span>
+
+      <div id="accessGranted">⬡ ACCESS GRANTED ⬡</div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════
+       MAIN APP
+  ═══════════════════════════ -->
+  <div id="app">
+
+    <!-- SIDE TASKBAR -->
+    <div id="taskbar">
+      <a href="#hero"       class="tb-item"><span class="tb-icon">⌂</span><span class="tb-label">Home</span></a>
+      <div class="tb-divider"></div>
+      <a href="#about"      class="tb-item"><span class="tb-icon">◈</span><span class="tb-label">About</span></a>
+      <a href="#skills"     class="tb-item"><span class="tb-icon">⚙</span><span class="tb-label">Skills</span></a>
+      <a href="#experience" class="tb-item"><span class="tb-icon">◉</span><span class="tb-label">Experience</span></a>
+      <a href="#projects"   class="tb-item"><span class="tb-icon">▣</span><span class="tb-label">Projects</span></a>
+      <a href="#contact"    class="tb-item"><span class="tb-icon">✦</span><span class="tb-label">Contact</span></a>
+    </div>
+
+    <!-- TOP NAV -->
+    <nav>
+      <span class="nav-id">ROYALTON BOBIN DSOUZA</span>
+      <div class="nav-status"><span class="ndot"></span>SYSTEM ONLINE // OPEN TO WORK</div>
+    </nav>
+
+    <div id="pages">
+
+      <!-- HERO -->
+      <section id="hero">
+        <div class="hero-inner">
+          <div class="h-tag fu fu1">ENGINEER PROFILE LOADED</div>
+          <h1 class="h-name fu fu2">Royalton<br><span class="arc">Bobin Dsouza</span></h1>
+          <p class="h-role fu fu3">Software Engineer</p>
+          <p class="h-bio fu fu4">Software developer, embedded systems engineer, and lifelong gamer. Interning at Appiness Interactive, Sorted 360 &amp; VisionAstraa EV Academy. Driven by curiosity, detail, and the obsession to build things that work perfectly.</p>
+          <div class="h-btns fu fu5">
+            <a href="#projects" class="btn-arc"><span>View My Work</span></a>
+            <a href="#contact"  class="btn-g">Open Channel</a>
+          </div>
+        </div>
+        <div class="reactor">
+          <div class="ring"></div><div class="ring"></div><div class="ring"></div>
+          <div class="ring"></div><div class="ring"></div>
+          <div class="rcore"></div>
+        </div>
+      </section>
+
+      <!-- ABOUT -->
+      <section id="about" class="sec">
+        <div class="sec-tag">System Profile</div>
+        <h2 class="sec-title">About Me</h2>
+        <div class="about-grid">
+          <div>
+            <div class="about-text">
+              <p>Hi, I'm Royalton — an Electronics & Communication Engineering student at St. Joseph Engineering College, Mangaluru, with a sharp focus on software development and a genuine passion for gaming. I'm currently interning as a Software Developer at Appiness Interactive, a WordPress Developer at Sorted 360, and an Embedded Systems Engineer at VisionAstraa EV Academy.</p>
+              <p>I bring a developer's analytical mindset to everything — whether it's writing structured bug reports, building DSA solutions from scratch, or implementing hardware-level algorithms in SystemVerilog. I notice the details others miss, and I believe that obsession with quality is what separates good work from great work.</p>
+              <p>Outside work I'm an avid gamer — GTA, RDR2, and the broader open-world genre are my territory. Long-term goal: Microsoft.</p>
+            </div>
+            <div class="stats">
+              <div class="stat"><span class="stat-n">3</span><span class="stat-l">Internships</span></div>
+              <div class="stat"><span class="stat-n">40+</span><span class="stat-l">DSA Problems</span></div>
+              <div class="stat"><span class="stat-n">∞</span><span class="stat-l">Curiosity</span></div>
+              <div class="stat"><span class="stat-n">1</span><span class="stat-l">Goal: Microsoft</span></div>
+            </div>
+          </div>
+          <div class="panel info-panel">
+            <div class="dr"><span class="di">◈</span><span class="dl">Location</span><span class="dv">Bangalore, India</span></div>
+            <div class="dr"><span class="di">◈</span><span class="dl">Email</span><span class="dv"><a href="mailto:royaldsouza47@gmail.com">royaldsouza47@gmail.com</a></span></div>
+            <div class="dr"><span class="di">◈</span><span class="dl">LinkedIn</span><span class="dv"><a href="https://www.linkedin.com/in/royalton-d-souza-7b315b365" target="_blank">royalton-d-souza</a></span></div>
+            <div class="dr"><span class="di">◈</span><span class="dl">GitHub</span><span class="dv"><a href="https://github.com/royaldsouza47" target="_blank">royaldsouza47</a></span></div>
+            <div class="dr"><span class="di">◈</span><span class="dl">Status</span><span class="dv" style="color:var(--green);font-weight:600;">Open to Work ✦</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SKILLS -->
+      <section id="skills" class="sec">
+        <div class="sec-tag">Tech Stack</div>
+        <h2 class="sec-title">My Toolkit</h2>
+        <div class="skills-grid">
+          <div class="panel sk-card"><div class="sk-cat">Languages</div><div class="sk-list"><span class="sk-tag">Java</span><span class="sk-tag">JavaScript</span><span class="sk-tag">PHP</span><span class="sk-tag">SystemVerilog</span></div></div>
+          <div class="panel sk-card"><div class="sk-cat">Web & Frameworks</div><div class="sk-list"><span class="sk-tag">HTML/CSS</span><span class="sk-tag">WordPress</span><span class="sk-tag">Angular</span><span class="sk-tag">React</span></div></div>
+          <div class="panel sk-card"><div class="sk-cat">Tools & Platforms</div><div class="sk-list"><span class="sk-tag">Git & GitHub</span><span class="sk-tag">VS Code</span><span class="sk-tag">MATLAB</span><span class="sk-tag">Simulink</span></div></div>
+          <div class="panel sk-card"><div class="sk-cat">Databases</div><div class="sk-list"><span class="sk-tag">SQL</span></div></div>
+          <div class="panel sk-card"><div class="sk-cat">Gaming & QA</div><div class="sk-list"><span class="sk-tag">Bug Reporting</span><span class="sk-tag">Cross-platform Testing</span><span class="sk-tag">Critical Analysis</span></div></div>
+          <div class="panel sk-card"><div class="sk-cat">Soft Skills</div><div class="sk-list"><span class="sk-tag">Written English</span><span class="sk-tag">Teamwork</span><span class="sk-tag">Adaptability</span><span class="sk-tag">Attention to Detail</span></div></div>
+        </div>
+      </section>
+
+      <!-- EXPERIENCE -->
+      <section id="experience" class="sec">
+        <div class="sec-tag">Mission Log</div>
+        <h2 class="sec-title">Experience</h2>
+        <div class="exp-list">
+          <div class="panel exp-card">
+            <div class="exp-top">
+              <div>
+                <div class="exp-role">Software Developer Intern</div>
+                <div class="exp-co">Appiness Interactive // Bangalore</div>
+              </div>
+              <div class="exp-date">FEB 2026 – APR 2026</div>
+            </div>
+            <div class="exp-desc">Developed and maintained web applications, adapting quickly to in-house tools and internal workflows. Documented bugs and technical issues in structured reports, collaborating with the team to resolve them. Worked in a close-knit team, sharing insights and supporting teammates across development sprints.</div>
+            <div class="exp-tags"><span class="exp-tag">JavaScript</span><span class="exp-tag">React</span><span class="exp-tag">PHP</span><span class="exp-tag">SQL</span></div>
+          </div>
+          <div class="panel exp-card">
+            <div class="exp-top">
+              <div>
+                <div class="exp-role">WordPress Developer Intern</div>
+                <div class="exp-co">Sorted 360 // Bangalore</div>
+              </div>
+              <div class="exp-date">APR 2026 – PRESENT</div>
+            </div>
+            <div class="exp-desc">Testing websites across browsers and devices, identifying and reporting UI/UX inconsistencies with clear, concise feedback. Learning and adhering to internal CMS workflows and evolving project requirements.</div>
+            <div class="exp-tags"><span class="exp-tag">WordPress</span><span class="exp-tag">HTML/CSS</span><span class="exp-tag">Cross-browser Testing</span></div>
+          </div>
+          <div class="panel exp-card">
+            <div class="exp-top">
+              <div>
+                <div class="exp-role">Embedded Systems Intern</div>
+                <div class="exp-co">VisionAstraa EV Academy // Mangaluru</div>
+              </div>
+              <div class="exp-date">FEB 2026 – PRESENT</div>
+            </div>
+            <div class="exp-desc">Studying EV powertrain architecture, BMS systems, power electronics, and motor control. Building a 4-Wheeler EV Powertrain simulation in MATLAB/Simulink as the capstone project. Documenting and presenting technical findings to a team audience.</div>
+            <div class="exp-tags"><span class="exp-tag">MATLAB</span><span class="exp-tag">Simulink</span><span class="exp-tag">Embedded Systems</span><span class="exp-tag">BMS</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- PROJECTS -->
+      <section id="projects" class="sec">
+        <div class="sec-tag">Build Log</div>
+        <h2 class="sec-title">Projects</h2>
+        <div class="exp-list">
+          <div class="panel exp-card">
+            <div class="exp-top">
+              <div>
+                <div class="exp-role">DSA-Java Repository</div>
+                <div class="exp-co"><a href="https://github.com/royaldsouza47/DSA-Java" target="_blank" style="color:var(--arc);text-decoration:none;">github.com/royaldsouza47/DSA-Java</a></div>
+              </div>
+              <div class="exp-date">ONGOING</div>
+            </div>
+            <div class="exp-desc">Structured daily DSA practice in Java — 40+ problems solved across Arrays, Strings, Hashing, and Matrices following Striver's SDE Sheet. Daily commits demonstrate consistency, logical problem-solving, and a developer's approach to debugging. Next up: Recursion, Binary Search, Linked Lists, Trees, and DP.</div>
+            <div class="exp-tags"><span class="exp-tag">Java</span><span class="exp-tag">Data Structures</span><span class="exp-tag">Algorithms</span><span class="exp-tag">GitHub</span></div>
+          </div>
+          <div class="panel exp-card">
+            <div class="exp-top">
+              <div>
+                <div class="exp-role">Mini Search Engine using DSA</div>
+                <div class="exp-co">Academic Project</div>
+              </div>
+              <div class="exp-date">2025</div>
+            </div>
+            <div class="exp-desc">Built a functional search engine applying core DSA concepts — indexing, hashing, and retrieval algorithms — to efficiently search and rank results. Demonstrates practical application of data structures beyond textbook problems.</div>
+            <div class="exp-tags"><span class="exp-tag">Java</span><span class="exp-tag">Hashing</span><span class="exp-tag">Indexing</span><span class="exp-tag">DSA</span></div>
+          </div>
+          <div class="panel exp-card">
+            <div class="exp-top">
+              <div>
+                <div class="exp-role">Strassen's Matrix Multiplier</div>
+                <div class="exp-co">Hardware Implementation — SystemVerilog</div>
+              </div>
+              <div class="exp-date">2025</div>
+            </div>
+            <div class="exp-desc">Implemented Strassen's algorithm in SystemVerilog, reducing matrix multiplications from 8 to 7 per recursive step — a significant compute speed improvement for large matrices. Benchmarked against standard matrix multiplication to validate performance gains. Multiplications are the costliest operation in matrix math; Strassen's approach cuts them down at scale.</div>
+            <div class="exp-tags"><span class="exp-tag">SystemVerilog</span><span class="exp-tag">Algorithms</span><span class="exp-tag">Hardware Design</span><span class="exp-tag">Performance Optimization</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- CONTACT -->
+      <section id="contact" class="sec">
+        <div class="sec-tag">Open Channel</div>
+        <h2 class="sec-title">Get In Touch</h2>
+        <div class="contact-grid">
+          <div>
+            <p class="c-desc">I'm open to opportunities, collaborations, or just a good conversation about tech. Reach out through any channel — I'll get back to you.</p>
+            <div class="c-links">
+              <a href="mailto:royaldsouza47@gmail.com" class="c-item">
+                <div class="c-ico">@</div><div><div class="c-lbl">Email</div><div class="c-val">royaldsouza47@gmail.com</div></div>
+              </a>
+              <a href="https://www.linkedin.com/in/royalton-d-souza-7b315b365" target="_blank" class="c-item">
+                <div class="c-ico">in</div><div><div class="c-lbl">LinkedIn</div><div class="c-val">royalton-d-souza</div></div>
+              </a>
+              <a href="https://github.com/royaldsouza47" target="_blank" class="c-item">
+                <div class="c-ico">gh</div><div><div class="c-lbl">GitHub</div><div class="c-val">royaldsouza47</div></div>
+              </a>
+            </div>
+          </div>
+          <div>
+            <form class="c-form" onsubmit="handleSubmit(event)">
+              <div class="fg"><label class="fl">Your Name</label><input type="text" class="fi" placeholder="John Doe" required/></div>
+              <div class="fg"><label class="fl">Email</label><input type="email" class="fi" placeholder="john@example.com" required/></div>
+              <div class="fg"><label class="fl">Message</label><textarea class="ft" placeholder="Hey Royalton..."></textarea></div>
+              <button type="submit" class="btn-arc" style="border:none;cursor:pointer;width:fit-content;"><span id="submitTxt">Transmit Message</span></button>
+            </form>
+          </div>
+        </div>
+      </section>
+
+    </div><!-- /pages -->
+
+    <footer>
+      <p>© 2026 <span>ROYALTON BOBIN DSOUZA</span> · ENGINEERED WITH PURPOSE · ALL SYSTEMS NOMINAL</p>
+    </footer>
+
+  </div><!-- /app -->
+
+  <script>
+  // ── AUDIO CONTEXT ──
+  // Created lazily — only after user gesture so browsers don't block it
+  let AC = null;
+  let audioUnlocked = false;
+
+  function getAC(){
+    if(!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
+    if(AC.state === 'suspended') AC.resume();
+    return AC;
+  }
+
+  // Unlock on ANY user gesture — click, touch, keydown
+  function unlockAudio(){
+    if(audioUnlocked) return;
+    audioUnlocked = true;
+    getAC();
+    startBoot();
+  }
+  document.addEventListener('click',    unlockAudio, {once:true});
+  document.addEventListener('touchend', unlockAudio, {once:true});
+  document.addEventListener('keydown',  unlockAudio, {once:true});
+
+  // Also auto-start visuals immediately (sound comes after first gesture)
+  window.addEventListener('load', ()=> setTimeout(startBoot, 400));
+
+  // ── BEEP HELPER ──
+  function beep(freq=440, dur=0.08, vol=0.08, type='square', delay=0){
+    try {
+      const ac = getAC();
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.connect(g); g.connect(ac.destination);
+      o.type = type;
+      o.frequency.setValueAtTime(freq, ac.currentTime + delay);
+      g.gain.setValueAtTime(vol, ac.currentTime + delay);
+      g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + delay + dur);
+      o.start(ac.currentTime + delay);
+      o.stop(ac.currentTime + delay + dur + 0.01);
+    } catch(e){}
+  }
+
+  function playBoot()       { [80,120,160,200,240].forEach((f,i)=> beep(f,.12,.06,'sawtooth',i*.08)); }
+  function playClick()      { beep(900,.04,.04,'square'); }
+  function playLoad()       { for(let i=0;i<8;i++) beep(200+i*60,.06,.05,'square',i*.07); }
+  function playAccessGranted(){
+    [[523,.15],[659,.15],[784,.15],[1047,.35]].forEach(([f,d],i)=> beep(f,d,.1,'sine',i*.16));
+    beep(60,.4,.04,'sawtooth',.1);
+  }
+  function playWhoosh(){
+    try {
+      const ac = getAC();
+      const buf = ac.createBuffer(1, ac.sampleRate*.3, ac.sampleRate);
+      const d = buf.getChannelData(0);
+      for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/d.length,2)*.3;
+      const s=ac.createBufferSource(), g=ac.createGain();
+      const f=ac.createBiquadFilter(); f.type='bandpass'; f.frequency.value=800;
+      s.buffer=buf; s.connect(f); f.connect(g); g.connect(ac.destination);
+      g.gain.setValueAtTime(.4,ac.currentTime);
+      g.gain.exponentialRampToValueAtTime(.0001,ac.currentTime+.3);
+      s.start(); s.stop(ac.currentTime+.31);
+    } catch(e){}
+  }
+
+  // ── NAVBAR HOVER SOUND — same cool blip for all items ──
+  function playNavHover(){
+    try {
+      const ac = getAC();
+      // Layer 1: sharp high ping
+      const o1 = ac.createOscillator(), g1 = ac.createGain();
+      o1.connect(g1); g1.connect(ac.destination);
+      o1.type = 'sine';
+      o1.frequency.setValueAtTime(1400, ac.currentTime);
+      o1.frequency.exponentialRampToValueAtTime(900, ac.currentTime + 0.12);
+      g1.gain.setValueAtTime(0.12, ac.currentTime);
+      g1.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + 0.12);
+      o1.start(ac.currentTime); o1.stop(ac.currentTime + 0.13);
+
+      // Layer 2: subtle low thud underneath
+      const o2 = ac.createOscillator(), g2 = ac.createGain();
+      o2.connect(g2); g2.connect(ac.destination);
+      o2.type = 'square';
+      o2.frequency.setValueAtTime(120, ac.currentTime);
+      g2.gain.setValueAtTime(0.04, ac.currentTime);
+      g2.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + 0.06);
+      o2.start(ac.currentTime); o2.stop(ac.currentTime + 0.07);
+    } catch(e){}
+  }
+
+  document.querySelectorAll('.tb-item').forEach(el=>{
+    el.addEventListener('mouseenter', playNavHover);
+    el.addEventListener('touchstart', playNavHover, {passive:true});
+  });
+
+  // ── CURSOR ──
+  const cur  = document.getElementById('cur');
+  const curR = document.getElementById('curR');
+  let mx=0,my=0,rx=0,ry=0;
+  document.addEventListener('mousemove', e=>{
+    mx=e.clientX; my=e.clientY;
+    cur.style.left=mx+'px'; cur.style.top=my+'px';
+  });
+  (function animR(){ rx+=(mx-rx)*.12; ry+=(my-ry)*.12; curR.style.left=rx+'px'; curR.style.top=ry+'px'; requestAnimationFrame(animR); })();
+  document.querySelectorAll('a,button').forEach(el=>{
+    el.addEventListener('mouseenter',()=>{ cur.style.width='5px'; cur.style.height='5px'; curR.style.width='48px'; curR.style.height='48px'; });
+    el.addEventListener('mouseleave',()=>{ cur.style.width='10px'; cur.style.height='10px'; curR.style.width='32px'; curR.style.height='32px'; });
+  });
+
+  // ── BOOT SEQUENCE ──
+  const lines = [
+    {id:'l1',          text:'INITIALIZING RBD INTERFACE SYSTEM...', cls:'',   delay:300},
+    {id:'l2',          text:'LOADING CORE MODULES...',               cls:'',   delay:800},
+    {id:'barWrap',     type:'bar',                                              delay:1200},
+    {id:'l3',          text:'ESTABLISHING SECURE CONNECTION...',     cls:'',   delay:3000},
+    {id:'l4',          text:'ENCRYPTION PROTOCOLS: ACTIVE',          cls:'ok', delay:3500},
+    {id:'l5',          text:'IDENTITY VERIFICATION REQUIRED',        cls:'warn',delay:4000},
+    {id:'loginBox',    type:'login',                                            delay:4600},
+    {id:'l6',          text:'AUTHENTICATING...',                     cls:'',   delay:7000},
+    {id:'l7',          text:'CROSS-REFERENCING NEURAL SIGNATURE...',cls:'',   delay:7700},
+    {id:'l8',          text:'BIOMETRIC SCAN: COMPLETE',              cls:'ok', delay:8400},
+    {id:'accessGranted',type:'granted',                                        delay:9000},
+  ];
+
+  let bootStarted = false;
+
+  function startBoot(){
+    if(bootStarted) return;
+    bootStarted = true;
+    if(audioUnlocked) playBoot();
+
+    lines.forEach(ln=>{
+      setTimeout(()=>{
+        if(ln.type==='bar'){
+          document.getElementById('barWrap').style.display='block';
+          if(audioUnlocked) playLoad();
+          let w=0;
+          const iv=setInterval(()=>{
+            w+=2; document.getElementById('bar').style.width=w+'%';
+            if(w>=100) clearInterval(iv);
+          },38);
+
+        } else if(ln.type==='login'){
+          document.getElementById('loginBox').style.display='block';
+          if(audioUnlocked) playClick();
+          const userEl=document.getElementById('userVal');
+          const passEl=document.getElementById('passVal');
+          const usr='GUEST_USER';
+          let ui=0;
+          const ut=setInterval(()=>{
+            if(ui<usr.length){ userEl.textContent+=usr[ui++]; if(audioUnlocked) playClick(); }
+            else {
+              clearInterval(ut);
+              setTimeout(()=>{
+                let pi=0;
+                const pt=setInterval(()=>{
+                  if(pi<8){ passEl.textContent+='•'; pi++; if(audioUnlocked) playClick(); }
+                  else clearInterval(pt);
+                },120);
+              },400);
+            }
+          },100);
+
+        } else if(ln.type==='granted'){
+          const el=document.getElementById('accessGranted');
+          el.style.display='block';
+          if(audioUnlocked) playAccessGranted();
+          setTimeout(()=>{ if(audioUnlocked) playWhoosh(); launchPortfolio(); },1800);
+
+        } else {
+          const el=document.getElementById(ln.id);
+          if(el){ el.textContent=ln.text; el.className='t-line'+(ln.cls?' '+ln.cls:' active'); }
+          if(audioUnlocked) playClick();
+        }
+      }, ln.delay);
+    });
+  }
+
+  function launchPortfolio(){
+    const boot=document.getElementById('boot');
+    const app=document.getElementById('app');
+    boot.style.transition='opacity .8s';
+    boot.style.opacity='0';
+    setTimeout(()=>{ boot.style.display='none'; app.classList.add('visible'); },800);
+  }
+
+  // ── FORM ──
+  function handleSubmit(e){
+    e.preventDefault();
+    const btn = e.target.querySelector('button span');
+    if(btn){ btn.textContent = 'TRANSMITTED ✦'; }
+    setTimeout(()=>{ if(btn) btn.textContent = 'Transmit Message'; e.target.reset(); }, 3000);
+    if(audioUnlocked) beep(880, .15, .08, 'sine');
+  }
+  </script>
+</body>
+</html>
